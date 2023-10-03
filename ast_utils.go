@@ -90,7 +90,7 @@ func searchFunc(pkg *packages.Package, funcName string) (*ast.FuncDecl, *ast.Fil
 			return true
 		})
 	}
-	return nil, nil
+	return matchedFunc, file
 }
 
 func writeAstToFile(fset *token.FileSet, file *ast.File) error {
