@@ -74,9 +74,6 @@ func (fm funcMoveInfo) move() error {
 		if fDecl, ok := decl.(*ast.FuncDecl); ok {
 			if fDecl == fm.funcDecl {
 				fm.srcAst.Decls = append(fm.srcAst.Decls[:idx], fm.srcAst.Decls[idx+1:]...)
-				if err := writeAstToFile(fm.srcPkg.Fset, fm.srcAst); err != nil {
-					return err
-				}
 				break
 			}
 		}
@@ -85,6 +82,29 @@ func (fm funcMoveInfo) move() error {
 	// Add the function declaration to destination AST
 	fm.funcDecl.Name = &ast.Ident{Name: expFuncName}
 	fm.dstAst.Decls = append(fm.dstAst.Decls, fm.funcDecl)
+
+	// Add comments within function
+	if fm.funcDecl.Doc != nil {
+		fm.dstAst.Comments = append(fm.dstAst.Comments, fm.funcDecl.Doc)
+	}
+	firstIdx, lastIdx := -1, -1
+	for idx, commentGroup := range fm.srcAst.Comments {
+		if commentGroup == fm.funcDecl.Doc {
+			firstIdx = idx
+		}
+		if commentGroup.Pos() > fm.funcDecl.Pos() && commentGroup.End() < fm.funcDecl.End() {
+			if firstIdx == -1 {
+				firstIdx = idx
+			}
+			fm.dstAst.Comments = append(fm.dstAst.Comments, commentGroup)
+			lastIdx = idx
+		}
+	}
+
+	if firstIdx != -1 && lastIdx != -1 {
+		// Remove comments of source AST
+		fm.srcAst.Comments = append(fm.srcAst.Comments[:firstIdx], fm.srcAst.Comments[lastIdx+1:]...)
+	}
 
 	// Find the used import of the function and add those imports
 	// in the destination AST
@@ -97,6 +117,10 @@ func (fm funcMoveInfo) move() error {
 		} else {
 			astutil.AddNamedImport(dstFset, fm.dstAst, importSpec.Name.Name, path)
 		}
+	}
+
+	if err := writeAstToFile(fm.srcPkg.Fset, fm.srcAst); err != nil {
+		return err
 	}
 
 	// Update all the call expressions of the moved function
