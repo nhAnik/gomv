@@ -84,7 +84,17 @@ func main() {
 	if err != nil || packages.PrintErrors(pkgs) > 0 {
 		die(errPkg)
 	}
-	if err := gomv.MoveFunc(pkgs, funcName, srcPkgName, filepath.Join(sourceDir, dstFileName)); err != nil {
+	// Check if dstFileName is absolute path or relative path
+	var dstFileAbsPath string
+	if strings.HasPrefix(dstFileName, sourceDir) {
+		dstFileAbsPath = dstFileName
+	} else {
+		dstFileAbsPath = filepath.Join(sourceDir, dstFileName)
+	}
+	if _, err := os.Stat(dstFileAbsPath); errors.Is(err, os.ErrNotExist) {
+		die(fmt.Errorf("file %s does not exist", dstFileAbsPath))
+	}
+	if err := gomv.MoveFunc(pkgs, funcName, srcPkgName, dstFileAbsPath); err != nil {
 		die(err)
 	}
 
