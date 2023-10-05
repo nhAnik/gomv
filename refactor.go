@@ -97,7 +97,10 @@ func MoveFunc(pkgs []*packages.Package, funcName, srcPkgName, dstFileName string
 
 func (fm funcMoveInfo) move() error {
 	funcName := fm.funcDecl.Name.Name
-	expFuncName := strings.ToUpper(funcName[:1]) + funcName[1:]
+	expFuncName := funcName
+	if fm.srcPkg.ID != fm.dstPkg.ID {
+		expFuncName = strings.ToUpper(funcName[:1]) + funcName[1:]
+	}
 
 	// Remove the function declaration from source AST
 	for idx, decl := range fm.srcAst.Decls {
