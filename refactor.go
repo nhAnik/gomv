@@ -44,16 +44,19 @@ func MoveFunc(pkgs []*packages.Package, funcName, srcPkgName, dstFileName string
 	fm := funcMoveInfo{}
 
 	var srcFileName string
-
+	srcPkgFound := false
 	for _, pkg := range pkgs {
 		if pkg.Name == srcPkgName {
+			srcPkgFound = true
 			fm.srcPkg = pkg
 			fm.funcDecl, fm.srcAst = searchFunc(pkg, funcName)
-			srcFileName = pkg.Fset.Position(fm.srcAst.Package).Filename
-			if fm.funcDecl != nil {
-				fm.funcObj = pkg.TypesInfo.ObjectOf(fm.funcDecl.Name)
+			if fm.funcDecl == nil {
+				return fmt.Errorf("no function named %s in package %s", funcName, pkg)
 			}
-		} else if pkg.Name == dstPkgName {
+			srcFileName = pkg.Fset.Position(fm.srcAst.Package).Filename
+			fm.funcObj = pkg.TypesInfo.ObjectOf(fm.funcDecl.Name)
+		}
+		if pkg.Name == dstPkgName {
 			fm.dstPkg = pkg
 			for _, f := range pkg.Syntax {
 				if pkg.Fset.Position(f.Package).Filename == dstFileName {
@@ -62,13 +65,16 @@ func MoveFunc(pkgs []*packages.Package, funcName, srcPkgName, dstFileName string
 			}
 		}
 	}
+	if !srcPkgFound {
+		return fmt.Errorf("package %s does not exist", srcPkgName)
+	}
 	fm.refInfos = searchFuncRefs(pkgs, fm.funcObj)
 
 	if !fm.isValid() {
 		return errors.New("invalid case")
 	}
 	if srcFileName == dstFileName {
-		return errors.New("no op")
+		return fmt.Errorf("function %s already exists in file %s", funcName, dstFileName)
 	}
 	fm.srcName, fm.dstName = srcFileName, dstFileName
 	fm.refactoredFileMap = make(map[string]*astInfo)
@@ -189,7 +195,7 @@ func (fm funcMoveInfo) commit() error {
 	for fileName, info := range fm.refactoredFileMap {
 		newText, err := getFileText(info.fset, info.new)
 		if err != nil {
-			return errors.New("failed due to invalid AST")
+			return errors.New("move failed due to invalid AST")
 		}
 		fileToTextMap[fileName] = newText
 
