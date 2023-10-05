@@ -1,22 +1,33 @@
 package gomv
 
 import (
+	"bufio"
 	"errors"
+	"fmt"
 	"go/ast"
 	"go/types"
+	"os"
 	"strconv"
 	"strings"
 
+	"github.com/hexops/gotextdiff"
+	"github.com/hexops/gotextdiff/myers"
+	"github.com/hexops/gotextdiff/span"
 	"golang.org/x/tools/go/ast/astutil"
 	"golang.org/x/tools/go/packages"
 )
 
+var ErrNo = errors.New("no from user")
+
 type funcMoveInfo struct {
-	srcPkg, dstPkg *packages.Package
-	srcAst, dstAst *ast.File
-	funcDecl       *ast.FuncDecl
-	funcObj        types.Object
-	refInfos       []nodeInfo
+	srcName, dstName  string
+	srcPkg, dstPkg    *packages.Package
+	srcAst, dstAst    *ast.File
+	funcDecl          *ast.FuncDecl
+	funcObj           types.Object
+	refInfos          []nodeInfo
+	refactoredFileMap map[string]*astInfo
+	showPreview       bool
 }
 
 func (fm funcMoveInfo) isValid() bool {
@@ -25,7 +36,7 @@ func (fm funcMoveInfo) isValid() bool {
 		fm.funcDecl != nil && fm.funcObj != nil
 }
 
-func MoveFunc(pkgs []*packages.Package, funcName, srcPkgName, dstFileName string) error {
+func MoveFunc(pkgs []*packages.Package, funcName, srcPkgName, dstFileName string, showPreview bool) error {
 	dstPkgName, err := getPackageName(dstFileName)
 	if err != nil {
 		return err
@@ -59,6 +70,19 @@ func MoveFunc(pkgs []*packages.Package, funcName, srcPkgName, dstFileName string
 	if srcFileName == dstFileName {
 		return errors.New("no op")
 	}
+	fm.srcName, fm.dstName = srcFileName, dstFileName
+	fm.refactoredFileMap = make(map[string]*astInfo)
+	srcText, _ := getFileText(fm.srcPkg.Fset, fm.srcAst)
+	dstText, _ := getFileText(fm.dstPkg.Fset, fm.dstAst)
+	fm.refactoredFileMap[srcFileName] = &astInfo{oldText: string(srcText), fset: fm.srcPkg.Fset}
+	fm.refactoredFileMap[dstFileName] = &astInfo{oldText: string(dstText), fset: fm.dstPkg.Fset}
+	for _, ref := range fm.refInfos {
+		fileName := ref.fset.Position(ref.file.Package).Filename
+		text, _ := getFileText(ref.fset, ref.file)
+		fm.refactoredFileMap[fileName] = &astInfo{oldText: string(text), fset: ref.fset}
+	}
+	fm.showPreview = showPreview
+
 	if err := fm.move(); err != nil {
 		return err
 	}
@@ -119,8 +143,8 @@ func (fm funcMoveInfo) move() error {
 		}
 	}
 
-	if err := writeAstToFile(fm.srcPkg.Fset, fm.srcAst); err != nil {
-		return err
+	if srcInfo, ok := fm.refactoredFileMap[fm.srcName]; ok {
+		srcInfo.new = fm.srcAst
 	}
 
 	// Update all the call expressions of the moved function
@@ -142,14 +166,87 @@ func (fm funcMoveInfo) move() error {
 			astutil.AddImport(ref.fset, ref.file, fm.dstPkg.ID)
 		}
 
-		if err := writeAstToFile(ref.fset, ref.file); err != nil {
-			return err
+		fileName := ref.fset.Position(ref.file.Package).Filename
+		if info, ok := fm.refactoredFileMap[fileName]; ok {
+			info.new = ref.file
 		}
 	}
 
-	if err := writeAstToFile(dstFset, fm.dstAst); err != nil {
+	if dstInfo, ok := fm.refactoredFileMap[fm.dstName]; ok {
+		dstInfo.new = fm.dstAst
+	}
+
+	if err := fm.commit(); err != nil {
 		return err
 	}
 
 	return nil
+}
+
+func (fm funcMoveInfo) commit() error {
+	fileToTextMap, fileToDiffMap := make(map[string][]byte), make(map[string]string)
+
+	for fileName, info := range fm.refactoredFileMap {
+		newText, err := getFileText(info.fset, info.new)
+		if err != nil {
+			return errors.New("failed due to invalid AST")
+		}
+		fileToTextMap[fileName] = newText
+
+		if fm.showPreview {
+			edits := myers.ComputeEdits(span.URIFromPath(fileName), info.oldText, string(newText))
+			diff := fmt.Sprint(gotextdiff.ToUnified(fileName, fileName, info.oldText, edits))
+			fileToDiffMap[fileName] = diff
+		}
+	}
+
+	shouldCommit := !fm.showPreview
+	if fm.showPreview {
+		for _, diff := range fileToDiffMap {
+			fmt.Println(diff)
+		}
+		shouldCommit = yesNo()
+	}
+
+	if !shouldCommit {
+		return ErrNo
+	}
+
+	// Try to write the edited AST in the corresponding file
+	for fileName, text := range fileToTextMap {
+		if err := os.WriteFile(fileName, text, 0755); err != nil {
+			// If any write fails, rollback
+			fm.rollback()
+			return fmt.Errorf("failed to write in file: %s", fileName)
+		}
+	}
+
+	return nil
+}
+
+func (fm funcMoveInfo) rollback() {
+	for fileName, info := range fm.refactoredFileMap {
+		os.WriteFile(fileName, []byte(info.oldText), 0755)
+	}
+}
+
+func yesNo() bool {
+	r := bufio.NewReader(os.Stdin)
+	for i := 0; i < 5; i++ {
+		fmt.Println("Do you want to apply changes? [Y/n]")
+
+		ans, err := r.ReadString('\n')
+		if err != nil {
+			continue
+		}
+		ans = strings.ToLower(strings.TrimSpace(ans))
+		switch ans {
+		case "y", "yes":
+			return true
+		case "n", "no":
+			return false
+		}
+	}
+	// After max tries, return no
+	return false
 }

@@ -7,10 +7,15 @@ import (
 	"go/parser"
 	"go/token"
 	"go/types"
-	"os"
 
 	"golang.org/x/tools/go/packages"
 )
+
+type astInfo struct {
+	oldText string
+	new     *ast.File
+	fset    *token.FileSet
+}
 
 type nodeInfo struct {
 	node ast.Node
@@ -91,13 +96,4 @@ func searchFunc(pkg *packages.Package, funcName string) (*ast.FuncDecl, *ast.Fil
 		})
 	}
 	return matchedFunc, file
-}
-
-func writeAstToFile(fset *token.FileSet, file *ast.File) error {
-	bytes, err := getFileText(fset, file)
-	if err != nil {
-		return err
-	}
-	os.WriteFile(fset.Position(file.Package).Filename, bytes, 0775)
-	return nil
 }

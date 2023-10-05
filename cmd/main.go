@@ -32,6 +32,7 @@ Usage:
 
 Flags:
     -dir <location of the project directory>
+    -no-preview
 `
 
 func usage() {
@@ -48,6 +49,7 @@ var errPkg = errors.New("packages contain errors")
 
 func main() {
 	dir := flag.String("dir", "", "location of the go project")
+	noPreview := flag.Bool("no-preview", false, "preview of the change")
 	flag.Usage = usage
 	flag.Parse()
 	sourceDir := *dir
@@ -94,8 +96,14 @@ func main() {
 	if _, err := os.Stat(dstFileAbsPath); errors.Is(err, os.ErrNotExist) {
 		die(fmt.Errorf("file %s does not exist", dstFileAbsPath))
 	}
-	if err := gomv.MoveFunc(pkgs, funcName, srcPkgName, dstFileAbsPath); err != nil {
-		die(err)
+	showPreview := !*noPreview
+	if err := gomv.MoveFunc(pkgs, funcName, srcPkgName, dstFileAbsPath, showPreview); err != nil {
+		if errors.Is(err, gomv.ErrNo) {
+			fmt.Println("No change applied")
+			return
+		} else {
+			die(err)
+		}
 	}
 
 	fmt.Println("Moved")
