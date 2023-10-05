@@ -8,6 +8,8 @@ import (
 	"go/token"
 	"go/types"
 
+	"github.com/dave/dst"
+	"github.com/dave/dst/decorator"
 	"golang.org/x/tools/go/packages"
 )
 
@@ -96,4 +98,22 @@ func searchFunc(pkg *packages.Package, funcName string) (*ast.FuncDecl, *ast.Fil
 		})
 	}
 	return matchedFunc, file
+}
+
+type dstBundle struct {
+	dec     *decorator.Decorator
+	dstFile *dst.File
+}
+
+func (d *dstBundle) restore() (*token.FileSet, *ast.File, error) {
+	return decorator.RestoreFile(d.dstFile)
+}
+
+func newDstBundle(fset *token.FileSet, file *ast.File) (*dstBundle, error) {
+	dec := decorator.NewDecorator(fset)
+	dst, err := dec.DecorateFile(file)
+	if err != nil {
+		return nil, err
+	}
+	return &dstBundle{dec: dec, dstFile: dst}, nil
 }

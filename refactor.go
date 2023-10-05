@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/dave/dst"
 	"github.com/hexops/gotextdiff"
 	"github.com/hexops/gotextdiff/myers"
 	"github.com/hexops/gotextdiff/span"
@@ -100,48 +101,22 @@ func (fm funcMoveInfo) move() error {
 	expFuncName := funcName
 	if fm.srcPkg.ID != fm.dstPkg.ID {
 		expFuncName = strings.ToUpper(funcName[:1]) + funcName[1:]
-	}
 
-	// Remove the function declaration from source AST
-	for idx, decl := range fm.srcAst.Decls {
-		if fDecl, ok := decl.(*ast.FuncDecl); ok {
-			if fDecl == fm.funcDecl {
-				fm.srcAst.Decls = append(fm.srcAst.Decls[:idx], fm.srcAst.Decls[idx+1:]...)
-				break
+		// Export function
+		fm.funcDecl.Name = &ast.Ident{Name: expFuncName}
+
+		// Update function doc comments
+		for _, comment := range fm.funcDecl.Doc.List {
+			if strings.Contains(comment.Text, funcName) {
+				comment.Text = strings.ReplaceAll(comment.Text, funcName, expFuncName)
 			}
 		}
 	}
 
-	// Add the function declaration to destination AST
-	fm.funcDecl.Name = &ast.Ident{Name: expFuncName}
-	fm.dstAst.Decls = append(fm.dstAst.Decls, fm.funcDecl)
-
-	// Add comments within function
-	if fm.funcDecl.Doc != nil {
-		fm.dstAst.Comments = append(fm.dstAst.Comments, fm.funcDecl.Doc)
-	}
-	firstIdx, lastIdx := -1, -1
-	for idx, commentGroup := range fm.srcAst.Comments {
-		if commentGroup == fm.funcDecl.Doc {
-			firstIdx = idx
-		}
-		if commentGroup.Pos() > fm.funcDecl.Pos() && commentGroup.End() < fm.funcDecl.End() {
-			if firstIdx == -1 {
-				firstIdx = idx
-			}
-			fm.dstAst.Comments = append(fm.dstAst.Comments, commentGroup)
-			lastIdx = idx
-		}
-	}
-
-	if firstIdx != -1 && lastIdx != -1 {
-		// Remove comments of source AST
-		fm.srcAst.Comments = append(fm.srcAst.Comments[:firstIdx], fm.srcAst.Comments[lastIdx+1:]...)
-	}
+	dstFset := fm.dstPkg.Fset
 
 	// Find the used import of the function and add those imports
 	// in the destination AST
-	dstFset := fm.dstPkg.Fset
 	usedImports := getUsedImports(fm.srcAst, fm.funcDecl)
 	for _, importSpec := range usedImports {
 		path, _ := strconv.Unquote(importSpec.Path.Value)
@@ -150,10 +125,6 @@ func (fm funcMoveInfo) move() error {
 		} else {
 			astutil.AddNamedImport(dstFset, fm.dstAst, importSpec.Name.Name, path)
 		}
-	}
-
-	if srcInfo, ok := fm.refactoredFileMap[fm.srcName]; ok {
-		srcInfo.new = fm.srcAst
 	}
 
 	// Update all the call expressions of the moved function
@@ -181,8 +152,24 @@ func (fm funcMoveInfo) move() error {
 		}
 	}
 
+	// Move function declaration with comments from source AST to
+	// destination AST. The move is done using dave/dst package
+	// to move comments properly.
+	srcDb, dstDb, err := fm.moveFromSrcToDest()
+	if err != nil {
+		return err
+	}
+
+	if srcInfo, ok := fm.refactoredFileMap[fm.srcName]; ok {
+		if srcInfo.fset, srcInfo.new, err = srcDb.restore(); err != nil {
+			return err
+		}
+	}
+
 	if dstInfo, ok := fm.refactoredFileMap[fm.dstName]; ok {
-		dstInfo.new = fm.dstAst
+		if dstInfo.fset, dstInfo.new, err = dstDb.restore(); err != nil {
+			return err
+		}
 	}
 
 	if err := fm.commit(); err != nil {
@@ -190,6 +177,38 @@ func (fm funcMoveInfo) move() error {
 	}
 
 	return nil
+}
+
+func (fm funcMoveInfo) moveFromSrcToDest() (*dstBundle, *dstBundle, error) {
+	srcDb, err := newDstBundle(fm.srcPkg.Fset, fm.srcAst)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var decFuncDecl *dst.FuncDecl
+	if decNod, ok := srcDb.dec.Map.Dst.Nodes[fm.funcDecl]; ok {
+		decFuncDecl, _ = decNod.(*dst.FuncDecl)
+	}
+	if decFuncDecl == nil {
+		return nil, nil, errors.New("decorated function not found")
+	}
+	for idx, decl := range srcDb.dstFile.Decls {
+		if fDecl, ok := decl.(*dst.FuncDecl); ok {
+			if fDecl == decFuncDecl {
+				rest := srcDb.dstFile.Decls[idx+1:]
+				srcDb.dstFile.Decls = append(srcDb.dstFile.Decls[:idx], rest...)
+				break
+			}
+		}
+	}
+
+	dstDb, err := newDstBundle(fm.dstPkg.Fset, fm.dstAst)
+	if err != nil {
+		return nil, nil, err
+	}
+	dstDb.dstFile.Decls = append(dstDb.dstFile.Decls, decFuncDecl)
+
+	return srcDb, dstDb, nil
 }
 
 func (fm funcMoveInfo) commit() error {
