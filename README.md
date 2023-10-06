@@ -18,7 +18,11 @@ Flags:
     -dir <location of the project directory>
     -no-preview
 ```
-## Example
+### Installation
+```
+go install github.com/nhAnik/gomv/cmd/gomv@latest
+```
+### Example
 
 ```sh
 gomv -dir <DirectoryName> <PackageName.FunctionName> <DestFilePath>
@@ -30,6 +34,10 @@ For example, to move a function named `fun` inside `util` package
 to another file `foo/bar.go`
 ```sh
 gomv -dir /path/to/go/project util.fun foo/bar.go
+```
+In `/path/to/go/project` directory, the `-dir` flag can be omitted like below:
+```sh
+gomv util.fun foo/bar.go
 ```
 By default, a preview will be shown before applying changes and users will
 be prompted whether they want to apply the changes.
