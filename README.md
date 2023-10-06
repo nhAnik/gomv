@@ -1,6 +1,12 @@
 # gomv
 
-Move function from one package to another.
+gomv moves function from one package to another. After
+moving to another package, the referenced function calls
+are updated. Before applying changes, a diff preview is
+also shown.
+
+Currently, it works only for function and does not ensure
+code will compile successfully after applying changes.
 
 ## Usage
 ```
@@ -12,7 +18,7 @@ Flags:
     -dir <location of the project directory>
     -no-preview
 ```
-## Examples
+## Example
 
 ```sh
 gomv -dir <DirectoryName> <PackageName.FunctionName> <DestFilePath>
@@ -33,3 +39,6 @@ To disable preview and blindly accept changes (which is not recommended),
 ```sh
 gomv -dir /path/to/go/project -no-preview util.fun foo/bar.go
 ```
+## License
+
+[MIT](LICENSE)
