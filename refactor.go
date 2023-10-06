@@ -212,7 +212,7 @@ func (fm funcMoveInfo) moveFromSrcToDest() (*dstBundle, *dstBundle, error) {
 }
 
 func (fm funcMoveInfo) commit() error {
-	fileToTextMap, fileToDiffMap := make(map[string][]byte), make(map[string]string)
+	fileToTextMap, fileToDiffMap := make(map[string][]byte), make(map[string]gotextdiff.Unified)
 
 	for fileName, info := range fm.refactoredFileMap {
 		newText, err := getFileText(info.fset, info.new)
@@ -223,7 +223,7 @@ func (fm funcMoveInfo) commit() error {
 
 		if fm.showPreview {
 			edits := myers.ComputeEdits(span.URIFromPath(fileName), info.oldText, string(newText))
-			diff := fmt.Sprint(gotextdiff.ToUnified(fileName, fileName, info.oldText, edits))
+			diff := gotextdiff.ToUnified(fileName, fileName, info.oldText, edits)
 			fileToDiffMap[fileName] = diff
 		}
 	}
@@ -231,7 +231,7 @@ func (fm funcMoveInfo) commit() error {
 	shouldCommit := !fm.showPreview
 	if fm.showPreview {
 		for _, diff := range fileToDiffMap {
-			fmt.Println(diff)
+			previewDiff(diff)
 		}
 		shouldCommit = yesNo()
 	}
