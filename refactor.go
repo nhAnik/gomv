@@ -105,10 +105,12 @@ func (fm funcMoveInfo) move() error {
 		// Export function
 		fm.funcDecl.Name = &ast.Ident{Name: expFuncName}
 
-		// Update function doc comments
-		for _, comment := range fm.funcDecl.Doc.List {
-			if strings.Contains(comment.Text, funcName) {
-				comment.Text = strings.ReplaceAll(comment.Text, funcName, expFuncName)
+		if fm.funcDecl.Doc != nil {
+			// Update function doc comments
+			for _, comment := range fm.funcDecl.Doc.List {
+				if strings.Contains(comment.Text, funcName) {
+					comment.Text = strings.ReplaceAll(comment.Text, funcName, expFuncName)
+				}
 			}
 		}
 	}
