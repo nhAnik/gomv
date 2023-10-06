@@ -54,6 +54,9 @@ func MoveFunc(pkgs []*packages.Package, funcName, srcPkgName, dstFileName string
 			if fm.funcDecl == nil {
 				return fmt.Errorf("no function named %s in package %s", funcName, pkg)
 			}
+			if fm.funcDecl.Recv != nil {
+				return errors.New("method can not be moved")
+			}
 			srcFileName = pkg.Fset.Position(fm.srcAst.Package).Filename
 			fm.funcObj = pkg.TypesInfo.ObjectOf(fm.funcDecl.Name)
 		}
